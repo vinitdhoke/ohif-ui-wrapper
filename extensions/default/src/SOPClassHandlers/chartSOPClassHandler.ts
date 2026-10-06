@@ -1,0 +1,106 @@
+import { Types, DisplaySetService, utils } from '@ohif/core';
+
+import { id } from '../id';
+
+type InstanceMetadata = Types.InstanceMetadata;
+
+const SOPClassHandlerName = 'chart';
+
+const CHART_MODALITY = 'CHT';
+
+// Private SOPClassUid for chart data
+const ChartDataSOPClassUid = '1.9.451.13215.7.3.2.7.6.1';
+
+const sopClassUids = [ChartDataSOPClassUid];
+
+const makeChartDataDisplaySet = (instance, sopClassUids) => {
+  const {
+    StudyInstanceUID,
+    SeriesInstanceUID,
+    SOPInstanceUID,
+    SeriesDescription,
+    SeriesNumber,
+    SOPClassUID,
+  } = instance;
+
+  // The date/time of a display set is the date/time of the instance it shows,
+  // chosen from all the attributes that instance carries.
+  const { SeriesDate, SeriesTime } = utils.getLatestInstanceDateTime(instance);
+
+  return {
+    Modality: CHART_MODALITY,
+    loading: false,
+    isReconstructable: false,
+    displaySetInstanceUID: utils.guid(),
+    SeriesDescription,
+    SeriesNumber,
+    SeriesDate,
+    SeriesTime,
+    SOPInstanceUID,
+    SeriesInstanceUID,
+    StudyInstanceUID,
+    SOPClassHandlerId: `${id}.sopClassHandlerModule.${SOPClassHandlerName}`,
+    SOPClassUID,
+    isDerivedDisplaySet: true,
+    isLoaded: true,
+    sopClassUids,
+    instance,
+    instances: [instance],
+
+    /**
+     * Adds instances to the chart displaySet, rather than creating a new one
+     * when user moves to a different workflow step and gets back to a step that
+     * recreates the chart
+     */
+    addInstances: function (instances: InstanceMetadata[], _displaySetService: DisplaySetService) {
+      this.instances.push(...instances);
+      this.instance = this.instances[this.instances.length - 1];
+      // The date/time shown and sorted by is that of the instance the display
+      // set shows, so it moves with that instance rather than staying on the
+      // one the chart was first created with.
+      const { SeriesDate, SeriesTime } = utils.getLatestInstanceDateTime(this.instance);
+      this.SeriesDate = SeriesDate;
+      this.SeriesTime = SeriesTime;
+
+      return this;
+    },
+  };
+};
+
+function getSopClassUids(instances) {
+  const uniqueSopClassUidsInSeries = new Set();
+  instances.forEach(instance => {
+    uniqueSopClassUidsInSeries.add(instance.SOPClassUID);
+  });
+  const sopClassUids = Array.from(uniqueSopClassUidsInSeries);
+
+  return sopClassUids;
+}
+
+function _getDisplaySetsFromSeries(instances) {
+  // If the series has no instances, stop here
+  if (!instances || !instances.length) {
+    throw new Error('No instances were provided');
+  }
+
+  const sopClassUids = getSopClassUids(instances);
+  const displaySets = instances.map(instance => {
+    if (instance.Modality === CHART_MODALITY) {
+      return makeChartDataDisplaySet(instance, sopClassUids);
+    }
+
+    throw new Error('Unsupported modality');
+  });
+
+  return displaySets;
+}
+
+const chartHandler = {
+  name: SOPClassHandlerName,
+  sopClassUids,
+  getDisplaySetsFromSeries: instances => {
+    return _getDisplaySetsFromSeries(instances);
+  },
+};
+
+export { chartHandler };
